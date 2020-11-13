@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov  9 22:27:14 2020
+
+@author: vbarbosa
+"""
+
+#referencias 
+#https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.CountVectorizer.html
+#https://www.coursera.org/projects/nlp-fake-news-detector
+#https://minerandodados.com.br/fake-news-noticias-em-texto-e-oportunidades/
+
+import gensim #biblioteca para topic modelling e processamento de linguagem natural
+import pandas as pd #manipulacao e analise de dados
+from textblob.classifiers import NaiveBayesClassifier #Textblob biblioteca para processamento de dados textuais
+
+
+true = pd.read_csv('True.csv')
+fake = pd.read_csv('Fake.csv')
+
+
+true['fake'] = "true"
+fake['fake'] = "fake"
+
+# junto as colunas texto e titulo em uma coluna nova
+df = pd.concat([true, fake]).reset_index(drop = True)
+df['original']= df['title'] + '' +df['text']
+
+#coletando stopwords adicionais 
+from nltk.corpus import stopwords
+stop_words = stopwords.words('english')
+stop_words.extend(['from', 'subject', 're', 'edu', 'use'])
+
+#Removendo Stopwords e palavras com 2 ou menos caracteres 
+def preprocess(text):
+    result = []
+    for token in gensim.utils.simple_preprocess(text):
+        if token not in gensim.parsing.preprocessing.STOPWORDS and len(token)> 2 and token not in stop_words:
+            result.append(token)
+    return result 
+
+#aplico a remocacao a coluna original
+df['clean'] = df['original'].apply(preprocess)
+
+#juntar as palavras 
+df['clean_joined'] = df['clean'].apply(lambda x: " ".join(x)) 
+df.drop(columns = ['date'], inplace = True)
+df.drop(columns = ['title'], inplace = True)
+df.drop(columns = ['text'], inplace = True)
+df.drop(columns = ['subject'], inplace = True)
+df.drop(columns = ['original'], inplace = True)
+df.drop(columns = ['clean'], inplace = True)
+
+#Gera um CSV com os dados
+df.to_csv('resultado_fake.csv')
+
+#CSV com dados tratados para a previsao
+
+dataset = pd.read_csv('analise_fake.csv', sep=';') 
+
+#Processamento do Texto
+
+from sklearn.feature_extraction.text import CountVectorizer
+from nltk.tokenize import RegexpTokenizer
+token = RegexpTokenizer(r'[a-zA-Z0-9]+') # Expressão regular para remover simbolos
+cv = CountVectorizer(   analyzer='word',lowercase=True, stop_words='english',min_df=6,
+                        ngram_range = (3,5), tokenizer = token.tokenize)
+text_counts = cv.fit_transform(dataset['Text'])
+
+#Separa os dados em treinamento e teste
+
+y = dataset['Fake']   # Carrega alvo 
+X = text_counts            # Carrega as colunas geradas
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=0)
+
+#Ajusta modelo Naive Bayes com treinamento - Aprendizado supervisionado  
+
+from sklearn.naive_bayes import MultinomialNB
+NaiveB = MultinomialNB()
+NaiveB.fit(X_train, y_train)
+
+
+#Previsão usando os dados de teste Naive Bayes
+y_pred_test_NaiveB= NaiveB.predict(X_test)
+
+
+#Input da noticia 
+clf = NaiveBayesClassifier(dataset.values, format="csv")
+print('----------------------------------------')
+print('Predições: ')
+print('----------------------------------------')
+print(clf.classify("Clinton approved weapons sales to Islamic jihadists, “including ISIS”"))
+
+print(clf.classify("Alabama Democrat Doug Jones, who won a bitter fight for a U.S. Senate seat this week, on Thursday called on his Republican opponent to concede the race and help heal the Southern state after a deeply divisive contest."))
+
+#Cálcula da Acurácia do Naive Bayes
+from sklearn import metrics
+print()
+print('----------------------------------------------------------')
+print('Acurácia NaiveBayes:',metrics.accuracy_score(y_test, y_pred_test_NaiveB))
+print('----------------------------------------------------------')
